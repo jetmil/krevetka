@@ -291,7 +291,7 @@ function App() {
     if (!currentCard) return null;
 
     const cardData = currentCard[mode];
-    const videoSrc = mode === 'angry' ? '/promo/01-angry.mp4' : '/promo/02-soft.mp4';
+    const videoSrc = mode === 'angry' ? 'promo/01-angry.mp4' : 'promo/02-soft.mp4';
 
     return (
       <div className="screen card-screen">
