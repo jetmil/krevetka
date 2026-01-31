@@ -726,3 +726,56 @@ body {
     font-size: 20px;
   }
 }
+
+/* ========== ЭКРАН ЛИМИТА ========== */
+.limit-screen {
+  justify-content: center;
+  align-items: center;
+  gap: 40px;
+}
+
+.limit-content {
+  text-align: center;
+  background: var(--card-bg);
+  border: 1px solid var(--bioluminescent-neon);
+  border-radius: 24px;
+  padding: 40px 32px;
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.5),
+    0 0 30px var(--bioluminescent-neon),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  animation: slideUp 0.5s ease-out;
+}
+
+.limit-icon {
+  font-size: 80px;
+  display: block;
+  margin-bottom: 20px;
+}
+
+.limit-content h2 {
+  font-size: 28px;
+  margin-bottom: 16px;
+  color: var(--text-main);
+}
+
+.limit-content p {
+  font-size: 16px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.limit-subtext {
+  font-size: 14px !important;
+  color: var(--text-muted) !important;
+  font-style: italic;
+}
+
+.limit-actions {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  max-width: 400px;
+}

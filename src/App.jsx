@@ -7,8 +7,13 @@ import './App.css';
 const SCREENS = {
   CHOICE: 'choice',
   TAP: 'tap',
-  CARD: 'card'
+  CARD: 'card',
+  LIMIT: 'limit'
 };
+
+// Лимит тыков в день (кроме админов)
+const DAILY_LIMIT = 3;
+const ADMIN_IDS = [198367679]; // jetmil
 
 // Компонент частиц фона
 const Particles = () => (
@@ -45,10 +50,21 @@ function App() {
   const [tapsToday, setTapsToday] = useState(0);
   const [showDiagnosis, setShowDiagnosis] = useState(false);
   const [bubbles, setBubbles] = useState([]);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [tapsLeft, setTapsLeft] = useState(DAILY_LIMIT);
 
   // Инициализация VK Bridge
   useEffect(() => {
     bridge.send('VKWebAppInit');
+
+    // Получаем ID пользователя для проверки админа
+    bridge.send('VKWebAppGetUserInfo')
+      .then((user) => {
+        if (ADMIN_IDS.includes(user.id)) {
+          setIsAdmin(true);
+        }
+      })
+      .catch(() => {});
 
     bridge.send('VKWebAppStorageGet', { keys: ['tapsToday', 'lastTapDate'] })
       .then((data) => {
@@ -59,7 +75,11 @@ function App() {
         }, {});
 
         if (stored.lastTapDate === today) {
-          setTapsToday(parseInt(stored.tapsToday) || 0);
+          const taps = parseInt(stored.tapsToday) || 0;
+          setTapsToday(taps);
+          setTapsLeft(Math.max(0, DAILY_LIMIT - taps));
+        } else {
+          setTapsLeft(DAILY_LIMIT);
         }
       })
       .catch(() => {});
@@ -101,6 +121,15 @@ function App() {
   const handleTap = (e) => {
     if (isAnimating) return;
 
+    // Проверка лимита (админы без ограничений)
+    if (!isAdmin && tapsToday >= DAILY_LIMIT) {
+      setScreen(SCREENS.LIMIT);
+      try {
+        bridge.send('VKWebAppTapticNotificationOccurred', { type: 'error' });
+      } catch (e) {}
+      return;
+    }
+
     // Создаём пузыри в точке клика
     const rect = e.currentTarget.getBoundingClientRect();
     const centerX = ((e.clientX - rect.left) / rect.width) * 100;
@@ -121,6 +150,7 @@ function App() {
     // Сохраняем количество тыков
     const newTapsCount = tapsToday + 1;
     setTapsToday(newTapsCount);
+    setTapsLeft(Math.max(0, DAILY_LIMIT - newTapsCount));
     const today = new Date().toDateString();
 
     bridge.send('VKWebAppStorageSet', { key: 'tapsToday', value: String(newTapsCount) });
@@ -206,7 +236,7 @@ function App() {
         <button className="back-btn" onClick={handleChangeMode}>
           ← {mode === 'angry' ? 'Злая' : 'Мягкая'}
         </button>
-        <span className="taps-counter">Тыков: {tapsToday}</span>
+        <span className="taps-counter">{isAdmin ? `∞` : `${tapsLeft}/${DAILY_LIMIT}`}</span>
       </div>
 
       <div className="tap-area" onClick={handleTap}>
@@ -215,6 +245,26 @@ function App() {
           {mode === 'angry' && <span className="fire-emoji">🔥</span>}
         </div>
         <p className="tap-hint">{isAnimating ? 'Скручиваюсь...' : 'Ткни меня'}</p>
+      </div>
+    </div>
+  );
+
+  // Рендер экрана лимита
+  const renderLimit = () => (
+    <div className="screen limit-screen">
+      <div className="limit-content">
+        <span className="limit-icon">🦐💤</span>
+        <h2>Креветка устала</h2>
+        <p>Ты уже получил {DAILY_LIMIT} правды на сегодня.</p>
+        <p className="limit-subtext">Приходи завтра за новой порцией откровений.</p>
+      </div>
+      <div className="limit-actions">
+        <button className="action-btn share-btn" onClick={handleShare}>
+          Поделиться
+        </button>
+        <button className="action-btn again-btn" onClick={handleChangeMode}>
+          На главную
+        </button>
       </div>
     </div>
   );
@@ -263,6 +313,7 @@ function App() {
       {screen === SCREENS.CHOICE && renderChoice()}
       {screen === SCREENS.TAP && renderTap()}
       {screen === SCREENS.CARD && renderCard()}
+      {screen === SCREENS.LIMIT && renderLimit()}
     </div>
   );
 }
