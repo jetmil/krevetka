@@ -13,7 +13,7 @@ const SCREENS = {
 
 // Лимит тыков в день (кроме админов)
 const DAILY_LIMIT = 3;
-const ADMIN_IDS = [198367679]; // jetmil
+const ADMIN_IDS = [198367679, 1085863949]; // jetmil, denchik
 
 // Компонент частиц фона
 const Particles = () => (
