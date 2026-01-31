@@ -208,9 +208,9 @@ function App() {
           loop
           muted
           playsInline
-          poster="/icons/icon-576.png"
+          poster="icons/icon-576.png"
         >
-          <source src="/promo/03-come-here.mp4" type="video/mp4" />
+          <source src="promo/03-come-here.mp4" type="video/mp4" />
         </video>
         <h1>Креветка судьбы</h1>
         <p className="tagline">Скрюченная правда о тебе</p>
@@ -269,7 +269,7 @@ function App() {
           muted
           playsInline
         >
-          <source src="/promo/06-sleep.mp4" type="video/mp4" />
+          <source src="promo/06-sleep.mp4" type="video/mp4" />
         </video>
         <h2>Креветка устала</h2>
         <p>Ты уже получил {DAILY_LIMIT} правды на сегодня.</p>
