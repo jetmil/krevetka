@@ -244,6 +244,41 @@ body {
   filter: drop-shadow(0 0 30px rgba(78, 205, 196, 0.5));
 }
 
+/* Видео на экране выбора */
+.shrimp-video {
+  width: 200px;
+  height: auto;
+  border-radius: 20px;
+  margin-bottom: 16px;
+  filter: drop-shadow(0 0 30px rgba(78, 205, 196, 0.5));
+}
+
+/* Видео на экране карточки */
+.card-video {
+  width: 150px;
+  height: auto;
+  border-radius: 16px;
+  margin-bottom: 16px;
+  filter: drop-shadow(0 0 20px var(--bioluminescent-neon));
+}
+
+.angry .card-video {
+  filter: drop-shadow(0 0 20px var(--accent-angry-glow));
+}
+
+.soft .card-video {
+  filter: drop-shadow(0 0 20px var(--accent-soft-glow));
+}
+
+/* Видео на экране лимита */
+.limit-video {
+  width: 180px;
+  height: auto;
+  border-radius: 16px;
+  margin-bottom: 20px;
+  opacity: 0.9;
+}
+
 @keyframes float {
   0%, 100% { transform: translateY(0) rotate(-5deg); }
   50% { transform: translateY(-15px) rotate(5deg); }

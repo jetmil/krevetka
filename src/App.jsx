@@ -202,7 +202,16 @@ function App() {
   const renderChoice = () => (
     <div className="screen choice-screen">
       <div className="logo">
-        <span className="shrimp-icon">🦐</span>
+        <video
+          className="shrimp-video"
+          autoPlay
+          loop
+          muted
+          playsInline
+          poster="/icons/icon-576.png"
+        >
+          <source src="/promo/03-come-here.mp4" type="video/mp4" />
+        </video>
         <h1>Креветка судьбы</h1>
         <p className="tagline">Скрюченная правда о тебе</p>
       </div>
@@ -253,7 +262,15 @@ function App() {
   const renderLimit = () => (
     <div className="screen limit-screen">
       <div className="limit-content">
-        <span className="limit-icon">🦐💤</span>
+        <video
+          className="limit-video"
+          autoPlay
+          loop
+          muted
+          playsInline
+        >
+          <source src="/promo/06-sleep.mp4" type="video/mp4" />
+        </video>
         <h2>Креветка устала</h2>
         <p>Ты уже получил {DAILY_LIMIT} правды на сегодня.</p>
         <p className="limit-subtext">Приходи завтра за новой порцией откровений.</p>
@@ -274,9 +291,19 @@ function App() {
     if (!currentCard) return null;
 
     const cardData = currentCard[mode];
+    const videoSrc = mode === 'angry' ? '/promo/01-angry.mp4' : '/promo/02-soft.mp4';
 
     return (
       <div className="screen card-screen">
+        <video
+          className="card-video"
+          autoPlay
+          loop
+          muted
+          playsInline
+        >
+          <source src={videoSrc} type="video/mp4" />
+        </video>
         <div className="card">
           <div className="card-hit">
             <p>{cardData.hit}</p>
