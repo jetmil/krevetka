@@ -58,17 +58,31 @@ function App() {
   const tapInProgressRef = useRef(false); // Защита от race condition
   const longPressTimerRef = useRef(null); // Для секретного долгого нажатия
 
-  // Инициализация VK Bridge
+  // Проверка доступности VK Bridge
+  const [isVKAvailable, setIsVKAvailable] = useState(true);
+
+  // Инициализация VK Bridge (с fallback на браузер)
   useEffect(() => {
     const init = async () => {
+      let vkAvailable = false;
+
+      // Быстрая проверка — если не в VK, не ждём долго
+      const isInVK = window.location.hostname.includes('vk.com') ||
+                     window.location.search.includes('vk_') ||
+                     document.referrer.includes('vk.com');
+
       const timeout = setTimeout(() => {
-        logError('Init', 'Timeout - not in VK iframe?');
+        logError('Init', 'Timeout - running in browser mode');
+        setIsVKAvailable(false);
+        loadFromLocalStorage();
         setIsLoading(false);
-      }, 3000);
+      }, isInVK ? 3000 : 500); // Быстрее если явно не в VK
 
       try {
         await bridge.send('VKWebAppInit');
         clearTimeout(timeout);
+        vkAvailable = true;
+        setIsVKAvailable(true);
 
         // Проверяем админа
         try {
@@ -92,14 +106,10 @@ function App() {
           }
         } catch (e) {
           logError('GetLaunchParams', e);
-          const urlParams = new URLSearchParams(window.location.search);
-          const urlRole = urlParams.get('vk_viewer_group_role');
-          if (urlRole === 'admin' || urlRole === 'editor') {
-            setIsAdmin(true);
-          }
+          checkAdminFromURL();
         }
 
-        // Получаем сохраненные данные о тыках
+        // Получаем сохраненные данные о тыках из VK Storage
         try {
           const data = await bridge.send('VKWebAppStorageGet', { keys: ['tapsToday', 'lastTapDate'] });
           const today = new Date().toDateString();
@@ -110,7 +120,6 @@ function App() {
 
           if (stored.lastTapDate === today) {
             const parsedTaps = parseInt(stored.tapsToday, 10);
-            // Валидация: число от 0 до 100
             setTapsToday(Number.isFinite(parsedTaps) && parsedTaps >= 0 ? Math.min(parsedTaps, 100) : 0);
           } else {
             setTapsToday(0);
@@ -122,11 +131,44 @@ function App() {
       } catch (e) {
         clearTimeout(timeout);
         logError('VK Bridge init', e);
+        setIsVKAvailable(false);
+        loadFromLocalStorage();
       } finally {
         clearTimeout(timeout);
         setIsLoading(false);
-        trackSessionStart(); // Аналитика
+        if (vkAvailable) trackSessionStart();
       }
+    };
+
+    // Проверка админа из URL
+    const checkAdminFromURL = () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlRole = urlParams.get('vk_viewer_group_role');
+      if (urlRole === 'admin' || urlRole === 'editor') {
+        setIsAdmin(true);
+      }
+      const userId = urlParams.get('vk_user_id');
+      const ADMIN_IDS = ['123456789', '2635817'];
+      if (userId && ADMIN_IDS.includes(String(userId))) {
+        setIsAdmin(true);
+      }
+    };
+
+    // Fallback на localStorage для браузера
+    const loadFromLocalStorage = () => {
+      try {
+        const today = new Date().toDateString();
+        const lastDate = localStorage.getItem('krevetka_lastTapDate');
+        if (lastDate === today) {
+          const taps = parseInt(localStorage.getItem('krevetka_tapsToday') || '0', 10);
+          setTapsToday(Math.min(Math.max(0, taps), 100));
+        } else {
+          setTapsToday(0);
+        }
+      } catch {
+        setTapsToday(0);
+      }
+      checkAdminFromURL();
     };
 
     init();
@@ -183,14 +225,25 @@ function App() {
     });
   }, []);
 
-  // Сохранение лимита
+  // Сохранение лимита (VK Storage или localStorage)
   const saveTapCount = useCallback((newCount) => {
     const today = new Date().toDateString();
-    bridge.send('VKWebAppStorageSet', { key: 'tapsToday', value: String(newCount) })
-      .catch(e => logError('StorageSet tapsToday', e));
-    bridge.send('VKWebAppStorageSet', { key: 'lastTapDate', value: today })
-      .catch(e => logError('StorageSet lastTapDate', e));
-  }, []);
+
+    if (isVKAvailable) {
+      bridge.send('VKWebAppStorageSet', { key: 'tapsToday', value: String(newCount) })
+        .catch(e => logError('StorageSet tapsToday', e));
+      bridge.send('VKWebAppStorageSet', { key: 'lastTapDate', value: today })
+        .catch(e => logError('StorageSet lastTapDate', e));
+    } else {
+      // Fallback на localStorage
+      try {
+        localStorage.setItem('krevetka_tapsToday', String(newCount));
+        localStorage.setItem('krevetka_lastTapDate', today);
+      } catch (e) {
+        logError('localStorage save', e);
+      }
+    }
+  }, [isVKAvailable]);
 
   // Выбор режима
   const handleModeSelect = (selectedMode) => {
