@@ -56,6 +56,7 @@ function App() {
   const totalTapsRef = useRef(0);
   const preloadedVideosRef = useRef(new Set()); // Отслеживаем уже загруженные видео
   const tapInProgressRef = useRef(false); // Защита от race condition
+  const longPressTimerRef = useRef(null); // Для секретного долгого нажатия
 
   // Инициализация VK Bridge
   useEffect(() => {
@@ -84,7 +85,8 @@ function App() {
           }
 
           const userId = params?.vk_user_id || urlParams.get('vk_user_id');
-          const ADMIN_IDS = ['123456789'];
+          // VK ID админов (Дэнчик и тестовые)
+          const ADMIN_IDS = ['123456789', '2635817'];
           if (userId && ADMIN_IDS.includes(String(userId))) {
             setIsAdmin(true);
           }
@@ -402,6 +404,22 @@ function App() {
     }
   };
 
+  // Секретное долгое нажатие (3 сек) на tagline для активации админ-режима
+  const handleSecretLongPressStart = () => {
+    longPressTimerRef.current = setTimeout(() => {
+      setIsAdmin(true);
+      setTapsToday(0); // Сразу сбрасываем лимит
+      haptic('VKWebAppTapticNotificationOccurred', { type: 'success' });
+    }, 3000);
+  };
+
+  const handleSecretLongPressEnd = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
   // Экран загрузки
   if (isLoading) {
     return (
@@ -460,7 +478,14 @@ function App() {
           <source src="promo/03-come-here.mp4" type="video/mp4" />
         </video>
         <h1 onClick={handleSecretTap}>Креветка судьбы</h1>
-        <p className="tagline">Скрюченная правда о тебе</p>
+        <p
+          className="tagline"
+          onTouchStart={handleSecretLongPressStart}
+          onTouchEnd={handleSecretLongPressEnd}
+          onMouseDown={handleSecretLongPressStart}
+          onMouseUp={handleSecretLongPressEnd}
+          onMouseLeave={handleSecretLongPressEnd}
+        >Скрюченная правда о тебе</p>
       </div>
 
       {/* Выбор колоды */}
