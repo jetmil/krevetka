@@ -1,0 +1,31 @@
+{
+  "name": "Креветка судьбы",
+  "short_name": "Креветка",
+  "description": "Скрюченная правда о тебе. Тыкни креветку — узнай судьбу!",
+  "start_url": "/krevetka/",
+  "display": "standalone",
+  "background_color": "#0a1628",
+  "theme_color": "#1a1a1a",
+  "orientation": "portrait",
+  "lang": "ru",
+  "icons": [
+    {
+      "src": "icons/icon-256.png",
+      "sizes": "256x256",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-576.png",
+      "sizes": "576x576",
+      "type": "image/png"
+    }
+  ],
+  "categories": ["entertainment", "games"]
+}
