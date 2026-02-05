@@ -2106,37 +2106,26 @@ body {
 }
 
 /* ========== LEVEL UP TOAST ========== */
+/* Консистентно с AchievementToast — сверху, не мешает UI */
 .level-up-toast {
   position: fixed;
-  top: 50%;
+  top: 80px; /* Ниже AchievementToast чтобы не перекрывались */
   left: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 2000;
+  transform: translateX(-50%);
+  z-index: var(--z-overlay, 100);
   background: linear-gradient(135deg, rgba(147, 51, 234, 0.95), rgba(124, 58, 237, 0.95));
   border: 2px solid rgba(255, 255, 255, 0.3);
-  border-radius: 24px;
-  padding: 32px 48px;
+  border-radius: 16px;
+  padding: 16px 24px;
   display: flex;
-  flex-direction: column;
   align-items: center;
   gap: 16px;
   cursor: pointer;
-  animation: levelUpAppear 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: toastSlideDown 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
   box-shadow:
-    0 20px 60px rgba(147, 51, 234, 0.5),
-    0 0 100px rgba(147, 51, 234, 0.3);
+    0 10px 40px rgba(147, 51, 234, 0.5),
+    0 0 60px rgba(147, 51, 234, 0.2);
   overflow: hidden;
-}
-
-@keyframes levelUpAppear {
-  0% {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(0.5);
-  }
-  100% {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
-  }
 }
 
 .level-up-content {
