@@ -29,7 +29,7 @@ function App() {
   const [showDiagnosis, setShowDiagnosis] = useState(false);
   const [bubbles, setBubbles] = useState([]);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false); // Показываем UI сразу!
   const [lastShownCard, setLastShownCard] = useState(null);
   const [isNewDiagnosis, setIsNewDiagnosis] = useState(false);
   const [selectedDeck, setSelectedDeck] = useState('all');
@@ -68,15 +68,18 @@ function App() {
 
       // Быстрая проверка — если не в VK, не ждём долго
       const isInVK = window.location.hostname.includes('vk.com') ||
+                     window.location.hostname.includes('vk.ru') ||
                      window.location.search.includes('vk_') ||
-                     document.referrer.includes('vk.com');
+                     document.referrer.includes('vk.com') ||
+                     document.referrer.includes('vk.ru');
 
+      // Короткий таймаут — если VK Bridge не ответил за 1 сек, показываем UI
       const timeout = setTimeout(() => {
         logError('Init', 'Timeout - running in browser mode');
         setIsVKAvailable(false);
         loadFromLocalStorage();
         setIsLoading(false);
-      }, isInVK ? 3000 : 500); // Быстрее если явно не в VK
+      }, 1000); // Максимум 1 секунда ожидания
 
       try {
         await bridge.send('VKWebAppInit');
