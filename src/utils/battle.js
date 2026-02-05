@@ -137,9 +137,10 @@ export const generateBattleImage = async (myDiagnosis, myMode) => {
 };
 
 /**
- * Поделиться батлом в историю
+ * Поделиться батлом в историю (с fallback на VKWebAppShare)
  */
 export const shareBattleStory = async (diagnosis, mode) => {
+  // Сначала пробуем историю (работает только в нативном VK)
   try {
     const imageBlob = await generateBattleImage(diagnosis, mode);
     await bridge.send('VKWebAppShowStoryBox', {
@@ -153,7 +154,8 @@ export const shareBattleStory = async (diagnosis, mode) => {
     });
     return true;
   } catch {
-    return false;
+    // Fallback на обычный шеринг (работает везде)
+    return shareBattle(diagnosis, mode);
   }
 };
 
