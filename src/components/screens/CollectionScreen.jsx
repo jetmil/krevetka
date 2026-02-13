@@ -1,107 +1,67 @@
-import bridge from '@vkontakte/vk-bridge';
-import { APP_URL } from '../../constants';
+import platform from '../../platform';
 
 /**
- * Экран коллекции диагнозов
+ * Экран коллекции диагнозов — облегчённый
  */
 const CollectionScreen = ({ stats, recent, streak, streakBonus, onClose, level, levelProgress, xp }) => {
-  // Вызвать друга на сравнение
   const handleChallengeFriend = async () => {
     const topDiagnosis = recent[0]?.diagnosis || 'Узнай свою креветочную правду!';
-    const shareText = `Моя креветка сказала: "${topDiagnosis}". А что скажет твоя? 🦐`;
+    const shareText = `Моя креветка сказала: "${topDiagnosis}". А что скажет твоя? \u{1F990}`;
 
     try {
-      await bridge.send('VKWebAppShare', {
-        link: APP_URL,
-        comment: shareText
-      });
-    } catch {
-      // Fallback — просто поделиться ссылкой
-      try {
-        await bridge.send('VKWebAppShare', { link: APP_URL });
-      } catch (err) {
-        console.warn('Share failed:', err);
-      }
+      await platform.shareLink(shareText);
+    } catch (err) {
+      console.warn('Share failed:', err);
     }
   };
+
+  const daysWord = streak === 1 ? 'день' : streak < 5 ? 'дня' : 'дней';
 
   return (
     <div className="screen collection-screen">
       <div className="collection-header">
-        <button className="back-btn" onClick={onClose}>← Назад</button>
+        <button className="back-btn" onClick={onClose}>&#x2190; Назад</button>
         <h2>Мои диагнозы</h2>
       </div>
 
-      <div className="collection-stats">
-        {/* Уровень */}
+      {/* Компактная шапка: уровень + стрик в одну строку */}
+      <div className="collection-summary">
         {level && (
-          <div className="stat-card level-card">
-            <span className="stat-emoji">{level.emoji}</span>
-            <span className="stat-value">Ур. {level.level}</span>
-            <span className="stat-label">{level.title}</span>
-            <div className="level-progress-bar">
-              <div
-                className="level-progress-fill"
-                style={{ width: `${levelProgress || 0}%` }}
-              />
+          <div className="summary-item level-summary">
+            <span className="summary-emoji">{level.emoji}</span>
+            <span className="summary-label">Ур. {level.level}</span>
+            <div className="summary-progress">
+              <div className="summary-progress-fill" style={{ width: `${levelProgress || 0}%` }} />
             </div>
-            <span className="stat-sublabel">{xp || 0} XP</span>
           </div>
         )}
-
-        {/* Streak */}
         {streak > 0 && (
-          <div className="stat-card streak-card" style={{ '--accent': streakBonus?.color }}>
-            <span className="stat-emoji">{streakBonus?.emoji}</span>
-            <span className="stat-value">{streak}</span>
-            <span className="stat-label">{streak === 1 ? 'день' : streak < 5 ? 'дня' : 'дней'} подряд</span>
+          <div className="summary-item streak-summary" style={{ '--accent': streakBonus?.color }}>
+            <span className="summary-emoji">{streakBonus?.emoji}</span>
+            <span className="summary-label">{streak} {daysWord}</span>
           </div>
         )}
-
-        {/* Собрано */}
-        <div className="stat-card">
-          <span className="stat-emoji">🎯</span>
-          <span className="stat-value">{stats.unique}</span>
-          <span className="stat-label">собрано</span>
-        </div>
-
-        {/* Прогресс */}
-        <div className="stat-card">
-          <span className="stat-emoji">📊</span>
-          <span className="stat-value">{stats.percent}%</span>
-          <span className="stat-label">карт открыто</span>
-        </div>
       </div>
 
-      {/* Прогресс-бар */}
-      <div className="collection-progress">
+      {/* Прогресс коллекции — один блок вместо трёх */}
+      <div className="collection-progress-block">
+        <div className="progress-header">
+          <span className="progress-collected">{stats.unique} <small>из 70</small></span>
+          <span className="progress-percent">{stats.percent}%</span>
+        </div>
         <div className="progress-bar">
-          <div
-            className="progress-fill"
-            style={{ width: `${stats.percent}%` }}
-          />
+          <div className="progress-fill" style={{ width: `${stats.percent}%` }} />
         </div>
-        <span className="progress-text">
-          {stats.unique} из 70 карт
-        </span>
-      </div>
-
-      {/* Баланс режимов */}
-      <div className="mode-balance">
-        <div className="mode-stat angry">
-          <span>🔥 Злая</span>
-          <span>{stats.angry}</span>
-        </div>
-        <div className="mode-stat soft">
-          <span>✨ Мягкая</span>
-          <span>{stats.soft}</span>
+        <div className="mode-balance">
+          <span className="mode-tag angry">&#x1F525; {stats.angry}</span>
+          <span className="mode-tag soft">&#x2728; {stats.soft}</span>
         </div>
       </div>
 
       {/* Последние диагнозы */}
-      {recent.length > 0 && (
+      {recent.length > 0 ? (
         <div className="recent-diagnoses">
-          <h3>Последние диагнозы</h3>
+          <h3>Последние</h3>
           <div className="diagnosis-list">
             {recent.map((item, idx) => (
               <div
@@ -109,41 +69,34 @@ const CollectionScreen = ({ stats, recent, streak, streakBonus, onClose, level, 
                 className={`diagnosis-item ${item.mode}`}
               >
                 <span className="diagnosis-mode">
-                  {item.mode === 'angry' ? '🔥' : '✨'}
+                  {item.mode === 'angry' ? '\u{1F525}' : '\u{2728}'}
                 </span>
                 <span className="diagnosis-text">{item.diagnosis}</span>
               </div>
             ))}
           </div>
         </div>
-      )}
-
-      {recent.length === 0 && (
+      ) : (
         <div className="empty-collection">
-          <span className="empty-emoji">🦐</span>
+          <span className="empty-emoji">&#x1F990;</span>
           <p>Пока пусто!</p>
           <p className="empty-hint">Тыкай креветку, собирай диагнозы</p>
         </div>
       )}
 
-      {/* Вызови друга */}
-      <div className="challenge-section">
-        <div className="challenge-card">
-          <span className="challenge-emoji">🆚</span>
-          <h3>Вызови друга!</h3>
-          <p className="challenge-text">
-            Кто получит более жёсткий диагноз?
-          </p>
-          <button className="challenge-btn" onClick={handleChallengeFriend}>
-            <span>📤</span> Бросить вызов
-          </button>
-        </div>
-
-        {stats.unique >= 10 && (
-          <div className="achievement-hint">
-            <span>🏆</span> Ты собрал {stats.unique} диагнозов — круче 90% игроков!
-          </div>
-        )}
+      {/* Компактная кнопка шеринга внизу */}
+      <div className="collection-footer">
+        <button className="share-compact-btn" onClick={handleChallengeFriend}>
+          &#x1F4AC; Отправить другу
+        </button>
+        <a
+          href="privacy.html"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="privacy-footer-link"
+        >
+          Политика конфиденциальности
+        </a>
       </div>
     </div>
   );

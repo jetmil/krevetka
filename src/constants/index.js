@@ -49,3 +49,21 @@ export const VIDEOS = {
 
 // Максимум пузырей на экране
 export const MAX_BUBBLES = 30;
+
+// Продукты для покупки за Telegram Stars
+export const PRODUCTS = {
+  taps_5: {
+    id: 'taps_5',
+    title: '+5 тыков',
+    description: 'Ещё 5 диагнозов на сегодня',
+    price: 10,
+    emoji: '🦐',
+  },
+  unlimited_day: {
+    id: 'unlimited_day',
+    title: 'Безлимит на день',
+    description: 'Без ограничений до конца дня',
+    price: 25,
+    emoji: '🌟',
+  },
+};

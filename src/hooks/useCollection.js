@@ -1,25 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
-import bridge from '@vkontakte/vk-bridge';
+import platform from '../platform';
 import { safeJsonParse, validateCollection } from '../utils/validation';
 
 /**
  * Хук для управления коллекцией диагнозов
  */
 export const useCollection = (totalCards = 70) => {
-  const [collected, setCollected] = useState([]); // массив {id, mode, diagnosis, date}
+  const [collected, setCollected] = useState([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Загрузка коллекции
   useEffect(() => {
     const loadCollection = async () => {
       try {
-        const data = await bridge.send('VKWebAppStorageGet', {
-          keys: ['diagnosisCollection']
-        });
-
-        const stored = data.keys.find(k => k.key === 'diagnosisCollection');
-        if (stored?.value) {
-          const raw = safeJsonParse(stored.value, []);
+        const stored = await platform.storageGet(['diagnosisCollection']);
+        if (stored.diagnosisCollection) {
+          const raw = safeJsonParse(stored.diagnosisCollection, []);
           setCollected(validateCollection(raw));
         }
       } catch (e) {
@@ -32,17 +27,15 @@ export const useCollection = (totalCards = 70) => {
     loadCollection();
   }, []);
 
-  // Добавить диагноз в коллекцию
   const addToCollection = useCallback(async (card, mode) => {
     const diagnosis = card[mode]?.diagnosis;
     if (!diagnosis) return false;
 
-    // Проверяем, есть ли уже такой диагноз
     const exists = collected.some(
       c => c.id === card.id && c.mode === mode
     );
 
-    if (exists) return false; // Уже есть
+    if (exists) return false;
 
     const newItem = {
       id: card.id,
@@ -54,34 +47,27 @@ export const useCollection = (totalCards = 70) => {
     const newCollection = [...collected, newItem];
     setCollected(newCollection);
 
-    // Сохраняем (ограничиваем размер для VK Storage)
     try {
-      const toSave = newCollection.slice(-100); // Последние 100
-      await bridge.send('VKWebAppStorageSet', {
-        key: 'diagnosisCollection',
-        value: JSON.stringify(toSave)
-      });
+      const toSave = newCollection.slice(-100);
+      await platform.storageSet('diagnosisCollection', JSON.stringify(toSave));
     } catch (e) {
       console.warn('[Collection] Save error:', e);
     }
 
-    return true; // Новый диагноз!
+    return true;
   }, [collected]);
 
-  // Статистика
   const stats = {
     total: collected.length,
     unique: new Set(collected.map(c => `${c.id}-${c.mode}`)).size,
     angry: collected.filter(c => c.mode === 'angry').length,
     soft: collected.filter(c => c.mode === 'soft').length,
     percent: Math.round((new Set(collected.map(c => c.id)).size / totalCards) * 100),
-    maxPossible: totalCards * 2 // angry + soft для каждой карты
+    maxPossible: totalCards * 2
   };
 
-  // Последние диагнозы
   const recent = collected.slice(-10).reverse();
 
-  // Проверка, собран ли диагноз
   const hasCollected = useCallback((cardId, mode) => {
     return collected.some(c => c.id === cardId && c.mode === mode);
   }, [collected]);

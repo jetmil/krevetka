@@ -1,11 +1,7 @@
-/**
- * Хук для системы ачивок
- */
 import { useState, useEffect, useCallback, useRef } from 'react';
-import bridge from '@vkontakte/vk-bridge';
+import platform from '../platform';
 import { safeJsonParse, validateAchievements } from '../utils/validation';
 
-// Определения ачивок
 export const ACHIEVEMENTS = {
   FIRST_TAP: {
     id: 'first_tap',
@@ -73,14 +69,12 @@ export const useAchievements = () => {
   const [isLoaded, setIsLoaded] = useState(false);
   const notificationTimerRef = useRef(null);
 
-  // Загрузка при старте с валидацией
   useEffect(() => {
     const load = async () => {
       try {
-        const data = await bridge.send('VKWebAppStorageGet', { keys: [STORAGE_KEY] });
-        const stored = data.keys[0]?.value;
-        if (stored) {
-          const raw = safeJsonParse(stored, []);
+        const stored = await platform.storageGet([STORAGE_KEY]);
+        if (stored[STORAGE_KEY]) {
+          const raw = safeJsonParse(stored[STORAGE_KEY], []);
           setUnlocked(validateAchievements(raw));
         }
       } catch (e) {
@@ -91,19 +85,14 @@ export const useAchievements = () => {
     load();
   }, []);
 
-  // Сохранение
   const saveAchievements = useCallback(async (achievements) => {
     try {
-      await bridge.send('VKWebAppStorageSet', {
-        key: STORAGE_KEY,
-        value: JSON.stringify(achievements)
-      });
+      await platform.storageSet(STORAGE_KEY, JSON.stringify(achievements));
     } catch (e) {
       console.warn('Failed to save achievements:', e);
     }
   }, []);
 
-  // Разблокировать ачивку (с cleanup для memory leak)
   const unlock = useCallback((achievementId) => {
     if (unlocked.includes(achievementId)) return false;
 
@@ -115,7 +104,6 @@ export const useAchievements = () => {
     setJustUnlocked(achievement);
     saveAchievements(newUnlocked);
 
-    // Очистить предыдущий таймер и установить новый
     if (notificationTimerRef.current) {
       clearTimeout(notificationTimerRef.current);
     }
@@ -124,7 +112,6 @@ export const useAchievements = () => {
     return true;
   }, [unlocked, saveAchievements]);
 
-  // Проверить условия и разблокировать
   const checkAndUnlock = useCallback((context) => {
     const {
       totalTaps = 0,
@@ -138,43 +125,28 @@ export const useAchievements = () => {
 
     const newlyUnlocked = [];
 
-    // Первый тык
     if (totalTaps === 1 && !unlocked.includes('first_tap')) {
       if (unlock('first_tap')) newlyUnlocked.push('first_tap');
     }
-
-    // 5 злых подряд
     if (consecutiveAngry >= 5 && !unlocked.includes('angry_streak_5')) {
       if (unlock('angry_streak_5')) newlyUnlocked.push('angry_streak_5');
     }
-
-    // Неделя стрика
     if (streak >= 7 && !unlocked.includes('week_streak')) {
       if (unlock('week_streak')) newlyUnlocked.push('week_streak');
     }
-
-    // Ночной тык (между 0:00 и 5:00)
     const hour = new Date().getHours();
     if (hour >= 0 && hour < 5 && !unlocked.includes('night_owl')) {
       if (unlock('night_owl')) newlyUnlocked.push('night_owl');
     }
-
-    // Полная коллекция злых (70 карт)
     if (collectedAngry >= 70 && !unlocked.includes('collector_angry')) {
       if (unlock('collector_angry')) newlyUnlocked.push('collector_angry');
     }
-
-    // Полная коллекция мягких (70 карт)
     if (collectedSoft >= 70 && !unlocked.includes('collector_soft')) {
       if (unlock('collector_soft')) newlyUnlocked.push('collector_soft');
     }
-
-    // Легендарная карта
     if (cardRarity === 'legendary' && !unlocked.includes('legendary_find')) {
       if (unlock('legendary_find')) newlyUnlocked.push('legendary_find');
     }
-
-    // 5 редких карт
     if (rareCount >= 5 && !unlocked.includes('rare_hunter')) {
       if (unlock('rare_hunter')) newlyUnlocked.push('rare_hunter');
     }
@@ -182,12 +154,10 @@ export const useAchievements = () => {
     return newlyUnlocked;
   }, [unlocked, unlock]);
 
-  // Проверить есть ли ачивка
   const hasAchievement = useCallback((achievementId) => {
     return unlocked.includes(achievementId);
   }, [unlocked]);
 
-  // Скрыть уведомление
   const dismissNotification = useCallback(() => {
     if (notificationTimerRef.current) {
       clearTimeout(notificationTimerRef.current);
@@ -195,7 +165,6 @@ export const useAchievements = () => {
     setJustUnlocked(null);
   }, []);
 
-  // Cleanup при unmount
   useEffect(() => {
     return () => {
       if (notificationTimerRef.current) {

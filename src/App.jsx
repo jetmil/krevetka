@@ -1,14 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import bridge from '@vkontakte/vk-bridge';
+import platform from './platform';
 import cards, { RARITY_CONFIG } from './data/cards';
-import { selectCard, selectVideo, resetAllHistory, generateShareImage, generateShareVideo, shareToFriend, shareBattleStory, trackEvent, trackSessionStart } from './utils';
+import { selectCard, selectVideo, resetAllHistory, generateShareImage, generateShareVideo, shareToFriend, trackEvent, trackSessionStart } from './utils';
 import { haptic, useStreak, useCollection, useLevel } from './hooks';
 import useNotifications from './hooks/useNotifications';
 import useAchievements from './hooks/useAchievements';
 import { Particles, Bubbles, LimitProgress, ErrorBoundary, StreakBadge, WelcomeBackModal, AchievementToast, LevelBadge, LevelUpToast, DeckSelector } from './components/ui';
 import { getCardsForDeck, DECKS } from './data/decks';
 import { CollectionScreen } from './components/screens';
-import { SCREENS, DAILY_LIMIT, VIDEOS, APP_URL, MAX_BUBBLES } from './constants';
+import { SCREENS, DAILY_LIMIT, VIDEOS, APP_URL, MAX_BUBBLES, PRODUCTS } from './constants';
 import './App.css';
 
 // Логирование ошибок
@@ -29,10 +29,16 @@ function App() {
   const [showDiagnosis, setShowDiagnosis] = useState(false);
   const [bubbles, setBubbles] = useState([]);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [isLoading, setIsLoading] = useState(false); // Показываем UI сразу!
+  const [isLoading, setIsLoading] = useState(false);
   const [lastShownCard, setLastShownCard] = useState(null);
   const [isNewDiagnosis, setIsNewDiagnosis] = useState(false);
   const [selectedDeck, setSelectedDeck] = useState('all');
+
+  // Telegram Stars: бонусные тыки и безлимит
+  const [bonusTaps, setBonusTaps] = useState(0);
+  const [unlimitedToday, setUnlimitedToday] = useState(false);
+  const [isPurchasing, setIsPurchasing] = useState(false);
+  const [shareToast, setShareToast] = useState(null);
 
   // Хуки для streak и коллекции
   const { streak, getStreakBonus } = useStreak();
@@ -54,72 +60,43 @@ function App() {
   const consecutiveAngryRef = useRef(0);
   const rareCountRef = useRef(0);
   const totalTapsRef = useRef(0);
-  const preloadedVideosRef = useRef(new Set()); // Отслеживаем уже загруженные видео
-  const tapInProgressRef = useRef(false); // Защита от race condition
-  const longPressTimerRef = useRef(null); // Для секретного долгого нажатия
+  const preloadedVideosRef = useRef(new Set());
+  const tapInProgressRef = useRef(false);
+  const longPressTimerRef = useRef(null);
 
   // Проверка доступности VK Bridge
   const [isVKAvailable, setIsVKAvailable] = useState(true);
 
-  // Инициализация VK Bridge (с fallback на браузер)
+  // Инициализация
   useEffect(() => {
     const init = async () => {
       let vkAvailable = false;
 
-      // Быстрая проверка — если не в VK, не ждём долго
-      const isInVK = window.location.hostname.includes('vk.com') ||
-                     window.location.hostname.includes('vk.ru') ||
-                     window.location.search.includes('vk_') ||
-                     document.referrer.includes('vk.com') ||
-                     document.referrer.includes('vk.ru');
-
-      // Короткий таймаут — если VK Bridge не ответил за 1 сек, показываем UI
       const timeout = setTimeout(() => {
         logError('Init', 'Timeout - running in browser mode');
         setIsVKAvailable(false);
         loadFromLocalStorage();
         setIsLoading(false);
-      }, 1000); // Максимум 1 секунда ожидания
+      }, 1000);
 
       try {
-        await bridge.send('VKWebAppInit');
+        const initResult = await platform.init();
         clearTimeout(timeout);
-        vkAvailable = true;
-        setIsVKAvailable(true);
-
-        // Проверяем админа
-        try {
-          const params = await bridge.send('VKWebAppGetLaunchParams');
-          const role = params?.vk_viewer_group_role;
-          if (role === 'admin' || role === 'editor') {
-            setIsAdmin(true);
-          }
-
-          const urlParams = new URLSearchParams(window.location.search);
-          const urlRole = urlParams.get('vk_viewer_group_role');
-          if (urlRole === 'admin' || urlRole === 'editor') {
-            setIsAdmin(true);
-          }
-
-          const userId = params?.vk_user_id || urlParams.get('vk_user_id');
-          // VK ID админов (Дэнчик и тестовые)
-          const ADMIN_IDS = ['123456789', '2635817'];
-          if (userId && ADMIN_IDS.includes(String(userId))) {
-            setIsAdmin(true);
-          }
-        } catch (e) {
-          logError('GetLaunchParams', e);
-          checkAdminFromURL();
+        if (initResult.ok) {
+          vkAvailable = true;
+          setIsVKAvailable(true);
         }
 
-        // Получаем сохраненные данные о тыках из VK Storage
         try {
-          const data = await bridge.send('VKWebAppStorageGet', { keys: ['tapsToday', 'lastTapDate'] });
+          const admin = await platform.isAdmin();
+          if (admin) setIsAdmin(true);
+        } catch (e) {
+          logError('isAdmin', e);
+        }
+
+        try {
+          const stored = await platform.storageGet(['tapsToday', 'lastTapDate', 'bonusTaps', 'bonusDate', 'unlimitedDate']);
           const today = new Date().toDateString();
-          const stored = data.keys.reduce((acc, item) => {
-            acc[item.key] = item.value;
-            return acc;
-          }, {});
 
           if (stored.lastTapDate === today) {
             const parsedTaps = parseInt(stored.tapsToday, 10);
@@ -127,51 +104,81 @@ function App() {
           } else {
             setTapsToday(0);
           }
+
+          // Бонусные тыки — сбрасываются на следующий день
+          if (stored.bonusDate === today) {
+            const parsedBonus = parseInt(stored.bonusTaps, 10);
+            setBonusTaps(Number.isFinite(parsedBonus) && parsedBonus >= 0 ? parsedBonus : 0);
+          } else {
+            setBonusTaps(0);
+          }
+
+          // Безлимит — проверяем дату
+          if (stored.unlimitedDate === today) {
+            setUnlimitedToday(true);
+          }
         } catch (e) {
           logError('StorageGet', e);
           setTapsToday(0);
         }
       } catch (e) {
         clearTimeout(timeout);
-        logError('VK Bridge init', e);
+        logError('Platform init', e);
         setIsVKAvailable(false);
         loadFromLocalStorage();
       } finally {
         clearTimeout(timeout);
         setIsLoading(false);
         if (vkAvailable) trackSessionStart();
+
+        // Открыть конкретное предсказание по ссылке #card=ID&mode=angry|soft
+        try {
+          const hash = window.location.hash;
+          if (hash) {
+            const params = new URLSearchParams(hash.slice(1));
+            const cardId = parseInt(params.get('card'), 10);
+            const cardMode = params.get('mode');
+            if (cardId && cardMode && (cardMode === 'angry' || cardMode === 'soft')) {
+              const card = cards.find(c => c.id === cardId);
+              if (card) {
+                setMode(cardMode);
+                setCurrentCard(card);
+                setLastShownCard(card);
+                setShowDiagnosis(true);
+                setScreen(SCREENS.CARD);
+                trackEvent('open_shared_card', { cardId, mode: cardMode });
+                window.history.replaceState(null, '', window.location.pathname + window.location.search);
+              }
+            }
+          }
+        } catch { /* ignore */ }
       }
     };
 
-    // Проверка админа из URL
-    const checkAdminFromURL = () => {
-      const urlParams = new URLSearchParams(window.location.search);
-      const urlRole = urlParams.get('vk_viewer_group_role');
-      if (urlRole === 'admin' || urlRole === 'editor') {
-        setIsAdmin(true);
-      }
-      const userId = urlParams.get('vk_user_id');
-      const ADMIN_IDS = ['123456789', '2635817'];
-      if (userId && ADMIN_IDS.includes(String(userId))) {
-        setIsAdmin(true);
-      }
-    };
-
-    // Fallback на localStorage для браузера
-    const loadFromLocalStorage = () => {
+    const loadFromLocalStorage = async () => {
       try {
+        const stored = await platform.storageGet(['tapsToday', 'lastTapDate', 'bonusTaps', 'bonusDate', 'unlimitedDate']);
         const today = new Date().toDateString();
-        const lastDate = localStorage.getItem('krevetka_lastTapDate');
-        if (lastDate === today) {
-          const taps = parseInt(localStorage.getItem('krevetka_tapsToday') || '0', 10);
+        if (stored.lastTapDate === today) {
+          const taps = parseInt(stored.tapsToday || '0', 10);
           setTapsToday(Math.min(Math.max(0, taps), 100));
         } else {
           setTapsToday(0);
         }
+        if (stored.bonusDate === today) {
+          const b = parseInt(stored.bonusTaps || '0', 10);
+          setBonusTaps(Math.max(0, b));
+        }
+        if (stored.unlimitedDate === today) {
+          setUnlimitedToday(true);
+        }
       } catch {
         setTapsToday(0);
       }
-      checkAdminFromURL();
+      try {
+        const admin = await platform.isAdmin();
+        if (admin) setIsAdmin(true);
+      } catch { /* ignore */ }
     };
 
     init();
@@ -211,13 +218,12 @@ function App() {
     });
   }, []);
 
-  const isLimitReached = !isAdmin && tapsToday >= DAILY_LIMIT;
+  const isLimitReached = !isAdmin && !unlimitedToday && tapsToday >= (DAILY_LIMIT + bonusTaps);
 
-  // Preload видео (с защитой от дублирования)
+  // Preload видео
   const preloadVideos = useCallback((selectedMode) => {
     if (!selectedMode || !VIDEOS[selectedMode]) return;
     VIDEOS[selectedMode].forEach(src => {
-      // Не создавать дубликаты
       if (preloadedVideosRef.current.has(src)) return;
       preloadedVideosRef.current.add(src);
 
@@ -228,25 +234,47 @@ function App() {
     });
   }, []);
 
-  // Сохранение лимита (VK Storage или localStorage)
+  // Сохранение лимита
   const saveTapCount = useCallback((newCount) => {
     const today = new Date().toDateString();
+    platform.storageSet('tapsToday', String(newCount)).catch(e => logError('StorageSet tapsToday', e));
+    platform.storageSet('lastTapDate', today).catch(e => logError('StorageSet lastTapDate', e));
+  }, []);
 
-    if (isVKAvailable) {
-      bridge.send('VKWebAppStorageSet', { key: 'tapsToday', value: String(newCount) })
-        .catch(e => logError('StorageSet tapsToday', e));
-      bridge.send('VKWebAppStorageSet', { key: 'lastTapDate', value: today })
-        .catch(e => logError('StorageSet lastTapDate', e));
-    } else {
-      // Fallback на localStorage
-      try {
-        localStorage.setItem('krevetka_tapsToday', String(newCount));
-        localStorage.setItem('krevetka_lastTapDate', today);
-      } catch (e) {
-        logError('localStorage save', e);
+  // Покупка за Telegram Stars
+  const handlePurchase = async (productId) => {
+    if (isPurchasing) return;
+    setIsPurchasing(true);
+    haptic('VKWebAppTapticSelectionChanged');
+
+    try {
+      const result = await platform.purchase(productId);
+      if (result.success) {
+        const today = new Date().toDateString();
+        haptic('VKWebAppTapticNotificationOccurred', { type: 'success' });
+        trackEvent('purchase_success', { product: productId });
+
+        if (productId === 'taps_5') {
+          const newBonus = bonusTaps + 5;
+          setBonusTaps(newBonus);
+          platform.storageSet('bonusTaps', String(newBonus)).catch(e => logError('StorageSet bonusTaps', e));
+          platform.storageSet('bonusDate', today).catch(e => logError('StorageSet bonusDate', e));
+        } else if (productId === 'unlimited_day') {
+          setUnlimitedToday(true);
+          platform.storageSet('unlimitedDate', today).catch(e => logError('StorageSet unlimitedDate', e));
+        }
+
+        // После покупки — сразу обратно на экран тыка
+        setScreen(SCREENS.TAP);
+      } else {
+        trackEvent('purchase_cancel', { product: productId, reason: result.reason || result.status });
       }
+    } catch (e) {
+      logError('handlePurchase', e);
+    } finally {
+      setIsPurchasing(false);
     }
-  }, [isVKAvailable]);
+  };
 
   // Выбор режима
   const handleModeSelect = (selectedMode) => {
@@ -263,9 +291,8 @@ function App() {
     haptic('VKWebAppTapticSelectionChanged');
   };
 
-  // Тык по креветке (с защитой от race condition)
+  // Тык по креветке
   const handleTap = async (e) => {
-    // Двойная проверка: state + ref для защиты от race condition
     if (isAnimating || tapInProgressRef.current) return;
     tapInProgressRef.current = true;
 
@@ -297,17 +324,15 @@ function App() {
 
     setTimeout(() => {
       setIsAnimating(false);
-      tapInProgressRef.current = false; // Сбрасываем флаг
+      tapInProgressRef.current = false;
       setScreen(SCREENS.CARD);
       setTimeout(async () => {
         setShowDiagnosis(true);
         haptic('VKWebAppTapticNotificationOccurred', { type: 'success' });
 
-        // Добавляем в коллекцию
         const isNew = await addToCollection(selectedCard, mode);
         setIsNewDiagnosis(isNew);
 
-        // Трекинг для ачивок
         totalTapsRef.current += 1;
 
         if (mode === 'angry') {
@@ -320,7 +345,6 @@ function App() {
           rareCountRef.current += 1;
         }
 
-        // Проверяем ачивки
         checkAndUnlock({
           totalTaps: totalTapsRef.current,
           mode,
@@ -332,7 +356,6 @@ function App() {
           rareCount: rareCountRef.current
         });
 
-        // Запрашиваем уведомления после 3го тыка
         if (totalTapsRef.current === 3 && shouldAskPermission) {
           requestPermission();
         }
@@ -342,17 +365,14 @@ function App() {
           const newTapsCount = tapsToday + 1;
           setTapsToday(newTapsCount);
           saveTapCount(newTapsCount);
-          // Трекинг с данными о редкости, режиме и колоде
           trackEvent('tap_complete', { rarity: selectedCard.rarity, mode, deck: selectedDeck });
 
-          // Начисление XP
           addXP(XP_REWARDS.tap);
           if (selectedCard.rarity === 'rare') {
             addXP(XP_REWARDS.rare_card);
           } else if (selectedCard.rarity === 'legendary') {
             addXP(XP_REWARDS.legendary_card);
           }
-          // Бонус за стрик
           if (streak > 0) {
             addXP(streak * XP_REWARDS.streak_bonus);
           }
@@ -367,44 +387,31 @@ function App() {
     const cardData = cardToShare ? cardToShare[mode] : null;
     const diagnosisText = cardData ? cardData.diagnosis : 'Узнай свою судьбу!';
     const shareMode = mode || 'soft';
+    const shareContext = { cardId: cardToShare?.id, mode: shareMode };
 
     haptic('VKWebAppTapticSelectionChanged');
 
-    // Пробуем видео-сторис
-    if (useVideo) {
+    if (useVideo && platform.name === 'vk') {
       try {
         trackEvent('share_video');
-        const videoBlob = await generateShareVideo(diagnosisText, shareMode);
-        await bridge.send('VKWebAppShowStoryBox', {
-          background_type: 'video',
-          blob: videoBlob,
-          attachment: { text: 'Узнай свою правду', type: 'url', url: APP_URL }
-        });
-        addXP(XP_REWARDS.share_story);
-        return;
+        const videoBlob = generateShareVideo(diagnosisText, shareMode);
+        const success = await platform.shareStory(videoBlob, shareContext);
+        if (success) {
+          addXP(XP_REWARDS.share_story);
+          return;
+        }
       } catch {
         // Fallback на картинку
       }
     }
 
-    // Статичная картинка
     trackEvent('share_story');
     try {
-      const imageBlob = await generateShareImage(diagnosisText, shareMode);
-      await bridge.send('VKWebAppShowStoryBox', {
-        background_type: 'image',
-        blob: imageBlob,
-        attachment: { text: 'Узнай свою правду', type: 'url', url: APP_URL }
-      });
-      addXP(XP_REWARDS.share_story);
+      const imageBlob = generateShareImage(diagnosisText, shareMode);
+      const success = await platform.shareStory(imageBlob, shareContext);
+      if (success) addXP(XP_REWARDS.share_story);
     } catch (e) {
-      logError('ShowStoryBox', e);
-      try {
-        await bridge.send('VKWebAppShare', { link: APP_URL });
-        addXP(XP_REWARDS.share_story);
-      } catch (e2) {
-        logError('VKWebAppShare', e2);
-      }
+      logError('shareStory', e);
     }
   };
 
@@ -437,9 +444,9 @@ function App() {
     haptic('VKWebAppTapticSelectionChanged');
   };
 
-  // Секретный сброс лимита (только для уже авторизованных админов)
+  // Секретный сброс лимита
   const handleSecretTap = () => {
-    if (!isAdmin) return; // Только для админов!
+    if (!isAdmin) return;
 
     secretTapCountRef.current += 1;
 
@@ -449,7 +456,7 @@ function App() {
 
     if (secretTapCountRef.current >= 5) {
       setTapsToday(0);
-      bridge.send('VKWebAppStorageSet', { key: 'tapsToday', value: '0' })
+      platform.storageSet('tapsToday', '0')
         .catch(e => logError('SecretReset', e));
       haptic('VKWebAppTapticNotificationOccurred', { type: 'success' });
       secretTapCountRef.current = 0;
@@ -460,11 +467,11 @@ function App() {
     }
   };
 
-  // Секретное долгое нажатие (3 сек) на tagline для активации админ-режима
+  // Секретное долгое нажатие
   const handleSecretLongPressStart = () => {
     longPressTimerRef.current = setTimeout(() => {
       setIsAdmin(true);
-      setTapsToday(0); // Сразу сбрасываем лимит
+      setTapsToday(0);
       haptic('VKWebAppTapticNotificationOccurred', { type: 'success' });
     }, 3000);
   };
@@ -476,12 +483,51 @@ function App() {
     }
   };
 
+  // Отправить другу
+  const handleShareToFriend = async (diagnosis) => {
+    const card = currentCard || lastShownCard;
+    haptic('VKWebAppTapticSelectionChanged');
+    const success = await shareToFriend(diagnosis, mode, card?.id);
+    if (success) {
+      addXP(XP_REWARDS.share_friend);
+    }
+  };
+
+  // Поделиться в историю (VKWebAppShowStoryBox)
+  const [isSharing, setIsSharing] = useState(false);
+
+  const handleShareToStory = async () => {
+    if (isSharing) return;
+    setIsSharing(true);
+
+    const cardToShare = currentCard || lastShownCard;
+    const cardData = cardToShare ? cardToShare[mode] : null;
+    const diagnosisText = cardData ? cardData.diagnosis : 'Узнай свою судьбу!';
+    const shareMode = mode || 'soft';
+    const shareContext = { cardId: cardToShare?.id, mode: shareMode };
+
+    haptic('VKWebAppTapticSelectionChanged');
+    trackEvent('share_story', { mode: shareMode });
+
+    try {
+      const imageDataUri = generateShareImage(diagnosisText, shareMode);
+      const success = await platform.shareStory(imageDataUri, shareContext);
+      if (success) {
+        addXP(XP_REWARDS.share_story);
+      }
+    } catch (e) {
+      logError('handleShareToStory', e);
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
   // Экран загрузки
   if (isLoading) {
     return (
       <div className="app loading">
         <div className="loading-content">
-          <span className="loading-shrimp">🦐</span>
+          <span className="loading-shrimp">&#x1F990;</span>
           <p>Загрузка...</p>
         </div>
       </div>
@@ -490,13 +536,14 @@ function App() {
 
   const renderChoice = () => (
     <div className="screen choice-screen">
-      {/* Уровень, стрик и коллекция в шапке */}
       <div className="choice-header">
-        <LevelBadge
-          level={level}
-          progress={progress}
-          onClick={handleOpenCollection}
-        />
+        {level.level >= 2 && (
+          <LevelBadge
+            level={level}
+            progress={progress}
+            onClick={handleOpenCollection}
+          />
+        )}
         <StreakBadge
           streak={streak}
           bonus={streakBonus}
@@ -507,18 +554,9 @@ function App() {
           onClick={handleOpenCollection}
           aria-label={`Моя коллекция: ${stats.unique} карт`}
         >
-          <span aria-hidden="true">🎯</span>
+          <span aria-hidden="true">&#x1F3AF;</span>
           <span className="collection-count">{stats.unique}</span>
         </button>
-        <a
-          href="privacy.html"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="privacy-link"
-          aria-label="Политика конфиденциальности"
-        >
-          <span aria-hidden="true">ℹ️</span>
-        </a>
       </div>
 
       <div className="logo">
@@ -544,11 +582,12 @@ function App() {
         >Скрюченная правда о тебе</p>
       </div>
 
-      {/* Выбор колоды */}
-      <DeckSelector
-        selectedDeck={selectedDeck}
-        onSelect={setSelectedDeck}
-      />
+      {stats.unique >= 10 && (
+        <DeckSelector
+          selectedDeck={selectedDeck}
+          onSelect={setSelectedDeck}
+        />
+      )}
 
       <div className="choice-buttons" role="group" aria-label="Выбор режима">
         <button
@@ -556,7 +595,7 @@ function App() {
           onClick={() => handleModeSelect('angry')}
           aria-label="Злая креветка — жёсткие диагнозы"
         >
-          <span className="btn-icon" aria-hidden="true">🦐🔥</span>
+          <span className="btn-icon" aria-hidden="true">&#x1F990;&#x1F525;</span>
           <span className="btn-title">Злая креветка</span>
           <span className="btn-desc">Готов к правде?</span>
         </button>
@@ -566,7 +605,7 @@ function App() {
           onClick={() => handleModeSelect('soft')}
           aria-label="Мягкая креветка — нежные диагнозы"
         >
-          <span className="btn-icon" aria-hidden="true">🦐✨</span>
+          <span className="btn-icon" aria-hidden="true">&#x1F990;&#x2728;</span>
           <span className="btn-title">Мягкая</span>
           <span className="btn-desc">Для нежных</span>
         </button>
@@ -578,29 +617,22 @@ function App() {
     <div className="screen tap-screen">
       <div className="tap-header">
         <button className="back-btn" onClick={handleChangeMode}>
-          ← {mode === 'angry' ? 'Злая' : 'Мягкая'}
+          &#x2190; {mode === 'angry' ? 'Злая' : 'Мягкая'}
         </button>
         <div className="tap-header-right">
           <StreakBadge streak={streak} bonus={streakBonus} onClick={handleOpenCollection} />
-          <LimitProgress current={tapsToday} max={DAILY_LIMIT} isAdmin={isAdmin} />
+          <LimitProgress current={tapsToday} max={DAILY_LIMIT + bonusTaps} isAdmin={isAdmin || unlimitedToday} />
         </div>
       </div>
 
       <div className="tap-area" onClick={handleTap}>
         <div className={`shrimp ${isAnimating ? 'animating' : ''} ${mode}`}>
-          <span className="shrimp-emoji">🦐</span>
-          {mode === 'angry' && <span className="fire-emoji">🔥</span>}
+          <span className="shrimp-emoji">&#x1F990;</span>
+          {mode === 'angry' && <span className="fire-emoji">&#x1F525;</span>}
         </div>
         <p className="tap-hint">{isAnimating ? 'Скручиваюсь...' : 'Ткни меня'}</p>
       </div>
 
-      {/* Индикатор колоды */}
-      {selectedDeck !== 'all' && DECKS[selectedDeck] && (
-        <div className="deck-indicator" style={{ '--deck-color': DECKS[selectedDeck].color }}>
-          <span>{DECKS[selectedDeck].emoji}</span>
-          <span>{DECKS[selectedDeck].name}</span>
-        </div>
-      )}
     </div>
   );
 
@@ -611,19 +643,60 @@ function App() {
           <source src="promo/06-sleep.mp4" type="video/mp4" />
         </video>
         <h2 onClick={handleSecretTap}>Креветка устала</h2>
-        <p>Ты уже получил {DAILY_LIMIT} правды на сегодня.</p>
-        <p className="limit-subtext">Приходи завтра за новой порцией откровений.</p>
+        <p>Ты уже получил {DAILY_LIMIT + bonusTaps} правд на сегодня.</p>
+        <p className="limit-subtext">Лимит обновится в полночь — приходи завтра за новой порцией.</p>
 
-        {/* Показываем streak на экране лимита */}
         {streak > 0 && (
           <div className="limit-streak">
             <StreakBadge streak={streak} bonus={streakBonus} onClick={handleOpenCollection} />
           </div>
         )}
       </div>
+
+      {platform.name === 'telegram' && (
+        <div className="purchase-section">
+          <p className="purchase-title">Или разбуди её прямо сейчас</p>
+          <div className="purchase-buttons">
+            <button
+              className="purchase-btn purchase-taps"
+              onClick={() => handlePurchase('taps_5')}
+              disabled={isPurchasing}
+            >
+              <span className="purchase-emoji">{PRODUCTS.taps_5.emoji}</span>
+              <span className="purchase-info">
+                <span className="purchase-name">{PRODUCTS.taps_5.title}</span>
+                <span className="purchase-desc">{PRODUCTS.taps_5.description}</span>
+              </span>
+              <span className="purchase-price">
+                <span className="star-icon">&#x2B50;</span>
+                <span>{PRODUCTS.taps_5.price}</span>
+              </span>
+            </button>
+            <button
+              className="purchase-btn purchase-unlimited"
+              onClick={() => handlePurchase('unlimited_day')}
+              disabled={isPurchasing}
+            >
+              <span className="purchase-emoji">{PRODUCTS.unlimited_day.emoji}</span>
+              <span className="purchase-info">
+                <span className="purchase-name">{PRODUCTS.unlimited_day.title}</span>
+                <span className="purchase-desc">{PRODUCTS.unlimited_day.description}</span>
+              </span>
+              <span className="purchase-price">
+                <span className="star-icon">&#x2B50;</span>
+                <span>{PRODUCTS.unlimited_day.price}</span>
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="limit-actions">
-        <button className="action-btn share-btn" onClick={handleShare}>Поделиться в истории</button>
-        <button className="action-btn again-btn" onClick={handleOpenCollection}>Моя коллекция</button>
+        <button className="action-btn share-btn" onClick={handleShare}>{'\u{1F4E4}'} В истории</button>
+        <button className="action-btn again-btn" onClick={handleOpenCollection}>{'\u{1F3AF}'} Коллекция</button>
+      </div>
+      <div className="limit-actions" style={{ marginTop: 8 }}>
+        <button className="action-btn again-btn" onClick={handleChangeMode}>{'\u2190'} На главную</button>
       </div>
     </div>
   );
@@ -657,46 +730,31 @@ function App() {
         </div>
 
         <div className="card-actions">
-          <button className="action-btn share-btn" onClick={() => handleShare(false)}>
-            <span aria-hidden="true">📷</span> История
-          </button>
-          <button className="action-btn battle-btn" onClick={() => handleBattle(cardData.diagnosis)}>
-            <span aria-hidden="true">🆚</span> Батл
+          <button className="action-btn battle-btn" onClick={handleShareToStory} disabled={isSharing}>
+            <span aria-hidden="true">&#x1F4E4;</span> {isSharing ? 'Открываем...' : 'Поделиться'}
           </button>
           <button className="action-btn friend-btn" onClick={() => handleShareToFriend(cardData.diagnosis)}>
-            <span aria-hidden="true">💬</span> Другу
+            <span aria-hidden="true">&#x1F4AC;</span> Другу
           </button>
         </div>
         <div className="card-actions-bottom">
-          <button
-            className="action-btn again-btn"
-            onClick={handleAgain}
-            disabled={isLimitReached}
-          >
-            {isLimitReached ? 'Лимит исчерпан' : 'Ещё раз'}
-          </button>
+          {isLimitReached ? (
+            <>
+              <button className="action-btn again-btn" onClick={handleChangeMode}>
+                {'\u2190'} На главную
+              </button>
+            </>
+          ) : (
+            <button className="action-btn again-btn" onClick={handleAgain}>
+              Ещё раз
+            </button>
+          )}
         </div>
+        {isLimitReached && (
+          <p className="limit-hint-text">Лимит обновится в полночь</p>
+        )}
       </div>
     );
-  };
-
-  // Отправить другу
-  const handleShareToFriend = async (diagnosis) => {
-    haptic('VKWebAppTapticSelectionChanged');
-    const success = await shareToFriend(diagnosis, mode);
-    if (success) {
-      addXP(XP_REWARDS.share_friend);
-    }
-  };
-
-  // Батл с другом
-  const handleBattle = async (diagnosis) => {
-    haptic('VKWebAppTapticImpactOccurred', { style: 'heavy' });
-    trackEvent('share_battle', { mode });
-    const success = await shareBattleStory(diagnosis, mode);
-    if (success) {
-      addXP(XP_REWARDS.share_story + 5); // Бонус за батл
-    }
   };
 
   return (
@@ -723,7 +781,6 @@ function App() {
           />
         )}
 
-        {/* Модалка "С возвращением" */}
         {showWelcomeBack && (
           <WelcomeBackModal
             hoursAway={hoursAway}
@@ -731,17 +788,19 @@ function App() {
           />
         )}
 
-        {/* Тост ачивки */}
         <AchievementToast
           achievement={justUnlocked}
           onClose={dismissNotification}
         />
 
-        {/* Тост повышения уровня */}
         <LevelUpToast
           level={justLeveledUp}
           onClose={dismissLevelUp}
         />
+
+        {shareToast && (
+          <div className="share-toast">{shareToast}</div>
+        )}
       </div>
     </ErrorBoundary>
   );
